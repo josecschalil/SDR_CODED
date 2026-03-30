@@ -1,4 +1,4 @@
-function [src, dest, message] = ax25_decode(bitstream)
+function [src, dest, message] = ax25_decode(nrzi_bits)
 % AX.25 Decoder
 % Input:
 %   bitstream - binary array (0/1)
@@ -9,6 +9,7 @@ function [src, dest, message] = ax25_decode(bitstream)
 %   message - decoded text message
 
 %% 1. Find flags (0x7E → 01111110)
+bitstream = nrzi_decode(nrzi_bits);
 flag = [0 1 1 1 1 1 1 0];
 
 % Find start flag

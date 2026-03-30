@@ -53,9 +53,13 @@ for i = 1:length(bits)
 end
 
 %% 6. Add flags (0x7E = 01111110, LSB first → 0 1 1 1 1 1 1 0)
+
 flag = [0 1 1 1 1 1 1 0];
 
-frame = [flag stuffed flag];
+frame_bits = [flag stuffed flag];
+
+%% 7. NRZI Encoding (NEW STEP)
+frame = nrzi_encode(frame_bits);
 
 end
 
