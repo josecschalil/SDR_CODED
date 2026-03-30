@@ -18,6 +18,7 @@ addr = [addr encode_callsign(src, 1)];  % source (last address → set end bit)
 CTRL = hex2dec('03');
 PID  = hex2dec('F0');
 
+message = char(message);   % FIX
 payload = [addr CTRL PID uint8(message)];
 
 %% 3. Compute CRC-CCITT (FCS)
@@ -62,24 +63,37 @@ end
 %% -------- Helper Functions --------
 
 function addr = encode_callsign(call, isLast)
-% Pad callsign to 6 chars
+
+% ✅ FIX: convert string → char
+call = char(call);
+
+% Normalize
 call = upper(call);
+
+% Trim if longer than 6
+if length(call) > 6
+    call = call(1:6);
+end
+
+% Pad if shorter
 call = [call repmat(' ', 1, 6-length(call))];
 
-addr = [];
+addr = zeros(1,7,'uint8');
 
-% Encode 6 characters
+% Encode characters
 for i = 1:6
-    addr = [addr bitshift(uint8(call(i)),1)];
+    addr(i) = bitshift(uint8(call(i)),1);
 end
 
-% SSID byte (set last bit if last address)
-ssid = bitshift(uint8(0),1); % SSID = 0
+% SSID byte
+ssid = uint8(0);
+ssid = bitshift(ssid,1);
+
 if isLast
-    ssid = bitor(ssid,1); % set end-of-address bit
+    ssid = bitor(ssid,1);
 end
 
-addr = [addr ssid];
+addr(7) = ssid;
 
 end
 
