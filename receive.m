@@ -2,15 +2,15 @@ clc;
 clear;
 
 fs = 48000;
-fs_sdr = 480000;
+fs_sdr = 1000000;   % 1 MHz (safe)
 freq_dev = 3000;
 
 rx = sdrrx('Pluto');
-rx.CenterFrequency = 433e6;
+rx.CenterFrequency = 433.001e6;
 rx.BasebandSampleRate = fs_sdr;
 rx.SamplesPerFrame = 4096;
 rx.GainSource = 'Manual';
-rx.Gain = 40;
+rx.Gain = 60;
 
 fprintf('==============================\n');
 fprintf('RECEIVER STARTED\n');
@@ -38,7 +38,7 @@ if length(buffer) > fs_sdr
 end
 
 % Downsample
-audio = downsample(buffer, fs_sdr/fs);
+audio = resample(buffer, fs, fs_sdr);
 
 bits = afsk_demodulate(audio, fs);
 

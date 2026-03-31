@@ -9,16 +9,16 @@ frame = ax25_encode('N0CALL','APRS', msg);
 audio = afsk_modulate(frame, fs);
 
 % SDR preparation
-fs_sdr = 480000;
+fs_sdr = 1000000;   % 1 MHz (safe)
 interp_factor = fs_sdr/fs;
-audio_up = interp(audio, interp_factor);
+audio_up = resample(audio, fs_sdr, fs);
 
 freq_dev = 3000;
 phase = 2*pi*freq_dev * cumsum(audio_up)/fs_sdr;
 tx_signal = exp(1j*phase);
 
 tx = sdrtx('Pluto');
-tx.CenterFrequency = 433e6;
+rx.CenterFrequency = 433.001e6;
 tx.BasebandSampleRate = fs_sdr;
 tx.Gain = 0;
 
