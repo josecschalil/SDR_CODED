@@ -1,12 +1,11 @@
 clc; clear;
 
 fs     = 48000;
-fs_sdr = 960000;   % MUST match TX
-decim  = fs_sdr / fs;   % = 20 exactly
-dev    = 5000;          % MUST match TX deviation
+fs_sdr = 960000;
+decim  = fs_sdr / fs;
+dev    = 5000;
 
-%% Low-pass filter — pass AFSK band, kill noise before decimation
-% Passband up to 3 kHz (covers 2200 Hz + margin), stopband at 6 kHz
+%% LPF
 lpf = designfilt('lowpassfir', ...
     'PassbandFrequency',   3000, ...
     'StopbandFrequency',   8000, ...
@@ -18,76 +17,86 @@ lpf = designfilt('lowpassfir', ...
 rx = sdrrx('Pluto');
 rx.CenterFrequency    = 433e6;
 rx.BasebandSampleRate = fs_sdr;
-rx.SamplesPerFrame    = fs_sdr;   % 1 full second per frame
+rx.SamplesPerFrame    = fs_sdr;
 rx.GainSource         = 'Manual';
-rx.Gain               = 9;       % increase to 40 if power stays below 5
+rx.Gain               = 20;        % starting gain — AGC will adjust from here
+
+% AGC parameters
+POWER_TARGET = 30;
+POWER_MIN    = 20;
+POWER_MAX    = 45;
+GAIN_MIN     = 0;
+GAIN_MAX     = 60;
+gain_current = 20;
 
 fprintf('==============================\n');
 fprintf('RECEIVER ACTIVE — 433 MHz\n');
-fprintf('Waiting for signal...\n');
+fprintf('AGC enabled — target power: %d\n', POWER_TARGET);
 fprintf('==============================\n');
 
 while true
     %% 1 — RECEIVE
-    data  = rx();
-    data  = double(data);
+    %% 1 — RECEIVE (grab two frames and stitch)
+    data1 = rx();
+    data2 = rx();
+    data  = double([data1; data2]);   % 2 seconds of signal
     power = mean(abs(data).^2);
-    fprintf('Power: %.4f  ', power);
+  
+
+    %% 2 — AGC: adjust gain based on received power
+    %% 2 — AGC
+if power > 1.0
+    if power > POWER_MAX || power < POWER_MIN
+        % Proportional step — smaller correction near target
+        error_db  = 10 * log10(POWER_TARGET / max(power, 0.01));
+        gain_step = round(error_db * 0.5);          % 0.5 = damping factor
+        gain_step = max(-5, min(5, gain_step));      % clamp to ±5 dB per step
+        gain_new  = gain_current + gain_step;
+        gain_new  = max(GAIN_MIN, min(GAIN_MAX, gain_new));
+
+        if gain_new ~= gain_current
+            gain_current = gain_new;
+            rx.Gain      = gain_current;
+            fprintf('Power: %6.1f  AGC → %d dB\n', power, gain_current);
+            continue;
+        end
+    end
+end
+
+    fprintf('Power: %6.2f  Gain: %d dB  ', power, gain_current);
 
     if power < 1.0
-        fprintf('(no signal — waiting)\n');
+        fprintf('(no signal)\n');
         continue;
     end
-    fprintf('(signal detected)\n');
+    fprintf('(signal — decoding)\n');
 
-    %% 2 — FM DEMODULATE
-    % angle(x[n] * conj(x[n-1])) gives instantaneous phase difference
+    %% 3 — FM DEMODULATE
     fm = angle(data(2:end) .* conj(data(1:end-1)));
     fm = [fm; fm(end)];
+    fm = fm * (fs_sdr / (2*pi*dev));
 
-    % Scale to recover actual audio amplitude
-    % Without this, Goertzel energy levels are arbitrary and comparisons fail
-    fm = fm * (fs_sdr / (2 * pi * dev));
-
-    %% 3 — LOW-PASS FILTER (must happen BEFORE decimation)
-    fm_filtered = filter(lpf, fm);
-
-    %% 4 — DECIMATE
-    audio = fm_filtered(1:decim:end);
+    %% 4 — LPF + DECIMATE
+    fm_f  = filter(lpf, fm);
+    audio = fm_f(1:decim:end);
 
     %% 5 — NORMALISE
     audio = audio - mean(audio);
     peak  = max(abs(audio));
     if peak < 1e-4
-        fprintf('  audio too quiet after demod — skipping\n');
+        fprintf('  audio too quiet — skipping\n');
         continue;
     end
     audio = audio / peak;
 
-    %% 6 — DEBUG PLOTS
-    figure(1); clf;
-    subplot(2,1,1);
-    plot(audio(1:min(500,end)));
-    title(sprintf('Audio waveform  (power=%.2f)', power));
-    xlabel('Sample'); ylabel('Amplitude');
 
-    subplot(2,1,2);
-    [pxx, f] = pwelch(audio, 1024, 512, 4096, fs);
-    plot(f, 10*log10(pxx));
-    xlim([0 4000]); grid on;
-    xline(1200, 'r--', '1200 Hz');
-    xline(2200, 'r--', '2200 Hz');
-    title('Spectrum — mark=1200 Hz, space=2200 Hz');
-    xlabel('Hz'); ylabel('dB');
-    drawnow;
 
     %% 7 — AFSK DEMODULATE
     bits = afsk_demodulate(audio, fs);
     if isempty(bits)
-        fprintf('  afsk_demodulate returned empty\n');
+        fprintf('  afsk_demodulate empty\n');
         continue;
     end
-    fprintf('  bits recovered: %d\n', length(bits));
 
     %% 8 — AX.25 DECODE
     try
@@ -97,6 +106,7 @@ while true
         fprintf('  FROM : %s\n', src);
         fprintf('  TO   : %s\n', dest);
         fprintf('  MSG  : %s\n', msg);
+        fprintf('  GAIN : %d dB\n', gain_current);
         fprintf('==============================\n\n');
     catch e
         fprintf('  decode failed: %s\n', e.message);
