@@ -373,6 +373,7 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
 
         function updateDeviceSummary(app)
             app.DeviceValueLabel.Text = ['Device: ', app.DeviceDropDown.Value];
+            app.logConsole(['Selected radio target: ', char(app.selectedRadioId())]);
         end
 
         function onListenButton(app)
@@ -723,8 +724,12 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
         end
 
         function rx = createReceiver(app, gainValue)
-            rx = sdrrx('Pluto');
-            app.applyRadioSelection(rx);
+            radioId = app.selectedRadioId();
+            if isempty(radioId) || strcmp(radioId, "default")
+                rx = sdrrx('Pluto');
+            else
+                rx = sdrrx('Pluto', 'RadioID', char(radioId));
+            end
             rx.CenterFrequency = app.Config.centerFrequency;
             rx.BasebandSampleRate = app.Config.fs_sdr;
             rx.SamplesPerFrame = app.Config.fs_sdr;
@@ -734,16 +739,24 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
         end
 
         function tx = createTransmitter(app)
-            tx = sdrtx('Pluto');
-            app.applyRadioSelection(tx);
+            radioId = app.selectedRadioId();
+            if isempty(radioId) || strcmp(radioId, "default")
+                tx = sdrtx('Pluto');
+            else
+                tx = sdrtx('Pluto', 'RadioID', char(radioId));
+            end
             tx.CenterFrequency = app.Config.centerFrequency;
             tx.BasebandSampleRate = app.Config.fs_sdr;
             tx.Gain = round(app.GainSlider.Value);
         end
 
         function tx = createFixedGainTransmitter(app, gainValue)
-            tx = sdrtx('Pluto');
-            app.applyRadioSelection(tx);
+            radioId = app.selectedRadioId();
+            if isempty(radioId) || strcmp(radioId, "default")
+                tx = sdrtx('Pluto');
+            else
+                tx = sdrtx('Pluto', 'RadioID', char(radioId));
+            end
             tx.CenterFrequency = app.Config.centerFrequency;
             tx.BasebandSampleRate = app.Config.fs_sdr;
             tx.Gain = round(gainValue);
