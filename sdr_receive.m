@@ -39,6 +39,8 @@ disp('Capture complete');
 %% FM DEMODULATION
 
 % Extract phase
+rx_signal = double(rx_signal);
+
 phase = unwrap(angle(rx_signal));
 
 % Differentiate phase

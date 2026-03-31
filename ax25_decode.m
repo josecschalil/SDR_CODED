@@ -1,7 +1,7 @@
 function [src, dest, message] = ax25_decode(nrzi_bits)
 
 bitstream = nrzi_decode(nrzi_bits);
-disp(bitstream(1:50))
+
 flag = [0 1 1 1 1 1 1 0];
 
 start_idx = strfind(bitstream, flag);
