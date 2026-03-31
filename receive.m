@@ -20,7 +20,7 @@ rx.CenterFrequency    = 433e6;
 rx.BasebandSampleRate = fs_sdr;
 rx.SamplesPerFrame    = fs_sdr;   % 1 full second per frame
 rx.GainSource         = 'Manual';
-rx.Gain               = 20;       % increase to 40 if power stays below 5
+rx.Gain               = 9;       % increase to 40 if power stays below 5
 
 fprintf('==============================\n');
 fprintf('RECEIVER ACTIVE — 433 MHz\n');
