@@ -1,42 +1,39 @@
 classdef HalfDuplexChatApp < matlab.apps.AppBase
-    % Half-duplex SDR chat UI that wraps the existing AX.25/AFSK chain
-    % without modifying any current project files.
+    % UI wrapper for the existing AX.25 SDR chain with half-duplex behavior
+    % aligned to transmit.m and receive.m.
 
     properties (Access = public)
-        UIFigure                    matlab.ui.Figure
-        Grid                        matlab.ui.container.GridLayout
+        UIFigure            matlab.ui.Figure
+        RootGrid            matlab.ui.container.GridLayout
 
-        HeaderPanel                 matlab.ui.container.Panel
-        TitleLabel                  matlab.ui.control.Label
-        SubtitleLabel               matlab.ui.control.Label
-        StatusLamp                  matlab.ui.control.Lamp
-        StatusLabel                 matlab.ui.control.Label
-        ModeValueLabel              matlab.ui.control.Label
-        DeviceValueLabel            matlab.ui.control.Label
+        HeaderPanel         matlab.ui.container.Panel
+        TitleLabel          matlab.ui.control.Label
+        SubtitleLabel       matlab.ui.control.Label
+        StatusLamp          matlab.ui.control.Lamp
+        StatusLabel         matlab.ui.control.Label
+        DetailLabel         matlab.ui.control.Label
+        DeviceValueLabel    matlab.ui.control.Label
 
-        LeftPanel                   matlab.ui.container.Panel
-        LeftGrid                    matlab.ui.container.GridLayout
-        SourceField                 matlab.ui.control.EditField
-        DestinationField            matlab.ui.control.EditField
-        GainSlider                  matlab.ui.control.Slider
-        GainValueLabel              matlab.ui.control.Label
-        DeviceDropDown              matlab.ui.control.DropDown
-        RefreshButton               matlab.ui.control.Button
-        ListenButton                matlab.ui.control.Button
-        RequestTxButton             matlab.ui.control.Button
+        LeftPanel           matlab.ui.container.Panel
+        LeftGrid            matlab.ui.container.GridLayout
+        SourceField         matlab.ui.control.EditField
+        DestinationField    matlab.ui.control.EditField
+        GainSlider          matlab.ui.control.Slider
+        GainValueLabel      matlab.ui.control.Label
+        DeviceDropDown      matlab.ui.control.DropDown
+        RefreshButton       matlab.ui.control.Button
+        ListenButton        matlab.ui.control.Button
+        RequestTxButton     matlab.ui.control.Button
+        ConsoleArea         matlab.ui.control.TextArea
 
-        ComposePanel                matlab.ui.container.Panel
-        ComposeGrid                 matlab.ui.container.GridLayout
-        MessageArea                 matlab.ui.control.TextArea
-        SendButton                  matlab.ui.control.Button
-        ClearDraftButton            matlab.ui.control.Button
-        HintLabel                   matlab.ui.control.Label
-
-        LogPanel                    matlab.ui.container.Panel
-        LogGrid                     matlab.ui.container.GridLayout
-        SentArea                    matlab.ui.control.TextArea
-        ReceivedArea                matlab.ui.control.TextArea
-        ClearLogsButton             matlab.ui.control.Button
+        ChatPanel           matlab.ui.container.Panel
+        ChatGrid            matlab.ui.container.GridLayout
+        ChatArea            matlab.ui.control.TextArea
+        MessageArea         matlab.ui.control.TextArea
+        ActionGrid          matlab.ui.container.GridLayout
+        SendButton          matlab.ui.control.Button
+        ClearDraftButton    matlab.ui.control.Button
+        ClearChatButton     matlab.ui.control.Button
     end
 
     properties (Access = private)
@@ -79,70 +76,75 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
             cfg.centerFrequency = 433e6;
             cfg.rxGain = 40;
             cfg.powerThreshold = 1.0;
-            cfg.rxPollPeriod = 2.5;
+            cfg.rxPollPeriod = 1.5;
             cfg.framesPerPoll = 3;
             cfg.txPadSeconds = 2.0;
+            cfg.ackTimeout = 60;
+            cfg.ackCall = 'N0ACK';
+            cfg.rxAckPreviewLength = 8;
+            cfg.agcTarget = 30;
+            cfg.agcMin = 20;
+            cfg.agcMax = 45;
+            cfg.agcGainMin = 0;
+            cfg.agcGainMax = 60;
+            cfg.agcGainCurrent = 20;
         end
 
         function createComponents(app)
             app.UIFigure = uifigure('Visible', 'off');
             app.UIFigure.Name = 'Half-Duplex SDR Chat';
             app.UIFigure.Position = [80 60 1320 760];
-            app.UIFigure.Color = [0.94 0.95 0.97];
+            app.UIFigure.Color = [0.95 0.96 0.98];
 
-            app.Grid = uigridlayout(app.UIFigure, [2 3]);
-            app.Grid.RowHeight = {92, '1x'};
-            app.Grid.ColumnWidth = {320, 420, '1x'};
-            app.Grid.Padding = [18 18 18 18];
-            app.Grid.RowSpacing = 16;
-            app.Grid.ColumnSpacing = 16;
+            app.RootGrid = uigridlayout(app.UIFigure, [2 2]);
+            app.RootGrid.RowHeight = {92, '1x'};
+            app.RootGrid.ColumnWidth = {350, '1x'};
+            app.RootGrid.Padding = [18 18 18 18];
+            app.RootGrid.RowSpacing = 16;
+            app.RootGrid.ColumnSpacing = 16;
 
-            app.HeaderPanel = uipanel(app.Grid);
+            app.HeaderPanel = uipanel(app.RootGrid);
             app.HeaderPanel.Layout.Row = 1;
-            app.HeaderPanel.Layout.Column = [1 3];
-            app.HeaderPanel.BackgroundColor = [0.09 0.15 0.22];
+            app.HeaderPanel.Layout.Column = [1 2];
+            app.HeaderPanel.BackgroundColor = [0.08 0.14 0.22];
             app.HeaderPanel.BorderType = 'none';
 
             headerGrid = uigridlayout(app.HeaderPanel, [2 4]);
-            headerGrid.RowHeight = {30, 26};
-            headerGrid.ColumnWidth = {'1x', 26, 170, 240};
+            headerGrid.RowHeight = {30, 24};
+            headerGrid.ColumnWidth = {'1x', 26, 180, 250};
             headerGrid.Padding = [18 14 18 10];
             headerGrid.BackgroundColor = app.HeaderPanel.BackgroundColor;
 
             app.TitleLabel = uilabel(headerGrid);
             app.TitleLabel.Layout.Row = 1;
             app.TitleLabel.Layout.Column = 1;
-            app.TitleLabel.Text = 'SDR AX.25 HALF-DUPLEX CHAT';
+            app.TitleLabel.Text = 'SDR AX.25 CHAT TERMINAL';
             app.TitleLabel.FontSize = 22;
             app.TitleLabel.FontWeight = 'bold';
-            app.TitleLabel.FontColor = [0.97 0.98 0.99];
+            app.TitleLabel.FontColor = [0.98 0.98 0.99];
 
             app.SubtitleLabel = uilabel(headerGrid);
             app.SubtitleLabel.Layout.Row = 2;
             app.SubtitleLabel.Layout.Column = 1;
-            app.SubtitleLabel.Text = 'Request TX before every transmission. The receiver resumes automatically after send.';
+            app.SubtitleLabel.Text = 'UI flow follows transmit.m for TX ACK wait and receive.m for RX auto-ACK.';
             app.SubtitleLabel.FontSize = 12;
-            app.SubtitleLabel.FontColor = [0.80 0.86 0.92];
+            app.SubtitleLabel.FontColor = [0.82 0.87 0.92];
 
             app.StatusLamp = uilamp(headerGrid);
             app.StatusLamp.Layout.Row = 1;
             app.StatusLamp.Layout.Column = 2;
-            app.StatusLamp.Color = [0.98 0.60 0.45];
 
             app.StatusLabel = uilabel(headerGrid);
             app.StatusLabel.Layout.Row = 1;
             app.StatusLabel.Layout.Column = 3;
-            app.StatusLabel.Text = 'DISCONNECTED';
             app.StatusLabel.FontSize = 15;
             app.StatusLabel.FontWeight = 'bold';
-            app.StatusLabel.FontColor = [0.98 0.60 0.45];
 
-            app.ModeValueLabel = uilabel(headerGrid);
-            app.ModeValueLabel.Layout.Row = 2;
-            app.ModeValueLabel.Layout.Column = 3;
-            app.ModeValueLabel.Text = 'Mode: DISCONNECTED';
-            app.ModeValueLabel.FontSize = 12;
-            app.ModeValueLabel.FontColor = [0.82 0.87 0.92];
+            app.DetailLabel = uilabel(headerGrid);
+            app.DetailLabel.Layout.Row = 2;
+            app.DetailLabel.Layout.Column = 3;
+            app.DetailLabel.FontSize = 12;
+            app.DetailLabel.FontColor = [0.82 0.87 0.92];
 
             app.DeviceValueLabel = uilabel(headerGrid);
             app.DeviceValueLabel.Layout.Row = [1 2];
@@ -152,16 +154,16 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
             app.DeviceValueLabel.FontSize = 12;
             app.DeviceValueLabel.FontColor = [0.82 0.87 0.92];
 
-            app.LeftPanel = uipanel(app.Grid);
+            app.LeftPanel = uipanel(app.RootGrid);
             app.LeftPanel.Layout.Row = 2;
             app.LeftPanel.Layout.Column = 1;
-            app.LeftPanel.Title = 'Radio Control';
+            app.LeftPanel.Title = 'Control And Session Log';
             app.LeftPanel.FontWeight = 'bold';
             app.LeftPanel.BackgroundColor = [1 1 1];
 
-            app.LeftGrid = uigridlayout(app.LeftPanel, [13 2]);
-            app.LeftGrid.RowHeight = {22, 30, 22, 30, 22, 46, 22, 30, 30, 38, 38, '1x', 24};
-            app.LeftGrid.ColumnWidth = {'1x', 70};
+            app.LeftGrid = uigridlayout(app.LeftPanel, [14 2]);
+            app.LeftGrid.RowHeight = {22, 30, 22, 30, 22, 44, 22, 30, 30, 38, 38, 22, '1x', 24};
+            app.LeftGrid.ColumnWidth = {'1x', 72};
             app.LeftGrid.Padding = [14 14 14 14];
 
             srcLabel = uilabel(app.LeftGrid);
@@ -196,8 +198,8 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
             app.GainSlider.Layout.Row = 6;
             app.GainSlider.Layout.Column = 1;
             app.GainSlider.Limits = [-50 0];
-            app.GainSlider.Value = -10;
             app.GainSlider.MajorTicks = [-50 -40 -30 -20 -10 0];
+            app.GainSlider.Value = -10;
             app.GainSlider.ValueChangedFcn = @(~, ~) app.updateGainValue();
             app.GainSlider.ValueChangingFcn = @(~, evt) app.updateGainValue(evt.Value);
 
@@ -238,122 +240,92 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
             app.RequestTxButton.Layout.Column = [1 2];
             app.RequestTxButton.Text = 'Request TX';
             app.RequestTxButton.FontWeight = 'bold';
-            app.RequestTxButton.BackgroundColor = [0.98 0.92 0.77];
             app.RequestTxButton.Enable = 'off';
+            app.RequestTxButton.BackgroundColor = [0.98 0.92 0.77];
             app.RequestTxButton.ButtonPushedFcn = @(~, ~) app.onRequestTx();
 
-            radioNote = uitextarea(app.LeftGrid);
-            radioNote.Layout.Row = 11;
-            radioNote.Layout.Column = [1 2];
-            radioNote.Editable = 'off';
-            radioNote.Value = {'Half-duplex flow'; '1. Start Listening'; '2. Request TX'; '3. Send message'; '4. Receiver restarts'};
-            radioNote.BackgroundColor = [0.97 0.98 1.00];
+            logLabel = uilabel(app.LeftGrid);
+            logLabel.Layout.Row = 11;
+            logLabel.Layout.Column = [1 2];
+            logLabel.Text = 'SCRIPT-STYLE SESSION LOG';
+            logLabel.FontWeight = 'bold';
 
-            spacer = uilabel(app.LeftGrid);
-            spacer.Layout.Row = 12;
-            spacer.Layout.Column = [1 2];
-            spacer.Text = '';
+            helperLabel = uilabel(app.LeftGrid);
+            helperLabel.Layout.Row = 12;
+            helperLabel.Layout.Column = [1 2];
+            helperLabel.Text = 'Left pane mirrors transmit.m / receive.m console flow.';
+            helperLabel.FontColor = [0.43 0.47 0.52];
+
+            app.ConsoleArea = uitextarea(app.LeftGrid);
+            app.ConsoleArea.Layout.Row = 13;
+            app.ConsoleArea.Layout.Column = [1 2];
+            app.ConsoleArea.Editable = 'off';
+            app.ConsoleArea.FontName = 'Courier New';
+            app.ConsoleArea.Value = {'[Session log ready]'};
 
             footer = uilabel(app.LeftGrid);
-            footer.Layout.Row = 13;
+            footer.Layout.Row = 14;
             footer.Layout.Column = [1 2];
             footer.Text = sprintf('Center frequency: %.3f MHz', app.Config.centerFrequency / 1e6);
             footer.FontColor = [0.43 0.47 0.52];
 
-            app.ComposePanel = uipanel(app.Grid);
-            app.ComposePanel.Layout.Row = 2;
-            app.ComposePanel.Layout.Column = 2;
-            app.ComposePanel.Title = 'Compose Message';
-            app.ComposePanel.FontWeight = 'bold';
-            app.ComposePanel.BackgroundColor = [1 1 1];
+            app.ChatPanel = uipanel(app.RootGrid);
+            app.ChatPanel.Layout.Row = 2;
+            app.ChatPanel.Layout.Column = 2;
+            app.ChatPanel.Title = 'Conversation';
+            app.ChatPanel.FontWeight = 'bold';
+            app.ChatPanel.BackgroundColor = [1 1 1];
 
-            app.ComposeGrid = uigridlayout(app.ComposePanel, [6 1]);
-            app.ComposeGrid.RowHeight = {24, '1x', 38, 38, 52, 24};
-            app.ComposeGrid.Padding = [14 14 14 14];
+            app.ChatGrid = uigridlayout(app.ChatPanel, [5 1]);
+            app.ChatGrid.RowHeight = {24, '1x', 70, 42, 28};
+            app.ChatGrid.Padding = [14 14 14 14];
 
-            composeTitle = uilabel(app.ComposeGrid);
-            composeTitle.Layout.Row = 1;
-            composeTitle.Text = 'MESSAGE TEXT';
-            composeTitle.FontWeight = 'bold';
+            chatLabel = uilabel(app.ChatGrid);
+            chatLabel.Layout.Row = 1;
+            chatLabel.Text = 'COMBINED CHAT STREAM';
+            chatLabel.FontWeight = 'bold';
 
-            app.MessageArea = uitextarea(app.ComposeGrid);
-            app.MessageArea.Layout.Row = 2;
-            app.MessageArea.Value = {'Type your packet message here.'};
+            app.ChatArea = uitextarea(app.ChatGrid);
+            app.ChatArea.Layout.Row = 2;
+            app.ChatArea.Editable = 'off';
+            app.ChatArea.FontName = 'Courier New';
+            app.ChatArea.Value = {'[No traffic yet]'};
+
+            app.MessageArea = uitextarea(app.ChatGrid);
+            app.MessageArea.Layout.Row = 3;
             app.MessageArea.FontSize = 13;
+            app.MessageArea.Value = {''};
 
-            app.SendButton = uibutton(app.ComposeGrid, 'push');
-            app.SendButton.Layout.Row = 3;
+            app.ActionGrid = uigridlayout(app.ChatGrid, [1 3]);
+            app.ActionGrid.Layout.Row = 4;
+            app.ActionGrid.ColumnWidth = {'1x', '1x', '1x'};
+            app.ActionGrid.Padding = [0 0 0 0];
+
+            app.SendButton = uibutton(app.ActionGrid, 'push');
+            app.SendButton.Layout.Row = 1;
+            app.SendButton.Layout.Column = 1;
             app.SendButton.Text = 'Send Message';
             app.SendButton.FontWeight = 'bold';
-            app.SendButton.BackgroundColor = [0.86 0.90 0.98];
             app.SendButton.Enable = 'off';
+            app.SendButton.BackgroundColor = [0.86 0.90 0.98];
             app.SendButton.ButtonPushedFcn = @(~, ~) app.onSend();
 
-            app.ClearDraftButton = uibutton(app.ComposeGrid, 'push');
-            app.ClearDraftButton.Layout.Row = 4;
+            app.ClearDraftButton = uibutton(app.ActionGrid, 'push');
+            app.ClearDraftButton.Layout.Row = 1;
+            app.ClearDraftButton.Layout.Column = 2;
             app.ClearDraftButton.Text = 'Clear Draft';
             app.ClearDraftButton.ButtonPushedFcn = @(~, ~) app.clearDraft();
 
-            app.HintLabel = uilabel(app.ComposeGrid);
-            app.HintLabel.Layout.Row = 5;
-            app.HintLabel.Text = 'The Send button is unlocked only after Request TX to keep the link half-duplex.';
-            app.HintLabel.WordWrap = 'on';
-            app.HintLabel.FontColor = [0.42 0.46 0.50];
+            app.ClearChatButton = uibutton(app.ActionGrid, 'push');
+            app.ClearChatButton.Layout.Row = 1;
+            app.ClearChatButton.Layout.Column = 3;
+            app.ClearChatButton.Text = 'Clear Chat';
+            app.ClearChatButton.ButtonPushedFcn = @(~, ~) app.clearChat();
 
-            composeFooter = uilabel(app.ComposeGrid);
-            composeFooter.Layout.Row = 6;
-            composeFooter.Text = 'Existing signal-chain files are not modified by this UI.';
-            composeFooter.FontColor = [0.42 0.46 0.50];
-
-            app.LogPanel = uipanel(app.Grid);
-            app.LogPanel.Layout.Row = 2;
-            app.LogPanel.Layout.Column = 3;
-            app.LogPanel.Title = 'Traffic';
-            app.LogPanel.FontWeight = 'bold';
-            app.LogPanel.BackgroundColor = [1 1 1];
-
-            app.LogGrid = uigridlayout(app.LogPanel, [4 2]);
-            app.LogGrid.RowHeight = {22, '1x', 22, 30};
-            app.LogGrid.ColumnWidth = {'1x', '1x'};
-            app.LogGrid.Padding = [14 14 14 14];
-
-            sentLabel = uilabel(app.LogGrid);
-            sentLabel.Layout.Row = 1;
-            sentLabel.Layout.Column = 1;
-            sentLabel.Text = 'SENT MESSAGES';
-            sentLabel.FontWeight = 'bold';
-
-            recvLabel = uilabel(app.LogGrid);
-            recvLabel.Layout.Row = 1;
-            recvLabel.Layout.Column = 2;
-            recvLabel.Text = 'RECEIVED MESSAGES';
-            recvLabel.FontWeight = 'bold';
-
-            app.SentArea = uitextarea(app.LogGrid);
-            app.SentArea.Layout.Row = 2;
-            app.SentArea.Layout.Column = 1;
-            app.SentArea.Editable = 'off';
-            app.SentArea.Value = {'[No messages sent yet]'};
-            app.SentArea.FontName = 'Courier New';
-
-            app.ReceivedArea = uitextarea(app.LogGrid);
-            app.ReceivedArea.Layout.Row = 2;
-            app.ReceivedArea.Layout.Column = 2;
-            app.ReceivedArea.Editable = 'off';
-            app.ReceivedArea.Value = {'[No messages received yet]'};
-            app.ReceivedArea.FontName = 'Courier New';
-
-            summaryLabel = uilabel(app.LogGrid);
-            summaryLabel.Layout.Row = 3;
-            summaryLabel.Layout.Column = [1 2];
-            summaryLabel.Text = 'Status panel shows the actual radio/session mode for the selected Pluto.';
-            summaryLabel.FontColor = [0.42 0.46 0.50];
-
-            app.ClearLogsButton = uibutton(app.LogGrid, 'push');
-            app.ClearLogsButton.Layout.Row = 4;
-            app.ClearLogsButton.Layout.Column = [1 2];
-            app.ClearLogsButton.Text = 'Clear Sent / Received Logs';
-            app.ClearLogsButton.ButtonPushedFcn = @(~, ~) app.clearLogs();
+            hintLabel = uilabel(app.ChatGrid);
+            hintLabel.Layout.Row = 5;
+            hintLabel.Text = 'Compose box is intentionally smaller and anchored at the bottom like a chat app.';
+            hintLabel.FontColor = [0.43 0.47 0.52];
 
             app.UIFigure.Visible = 'on';
         end
@@ -375,9 +347,9 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
             app.updateDeviceSummary();
 
             if numel(app.Radios) > 1
-                app.ModeValueLabel.Text = sprintf('Mode: Found %d Pluto device entries. Select one and continue.', numel(app.Radios) - 1);
+                app.logConsole(sprintf('Refresh complete. Found %d Pluto device entries.', numel(app.Radios) - 1));
             else
-                app.ModeValueLabel.Text = 'Mode: No explicit Pluto IDs found. Using the default Pluto target.';
+                app.logConsole('Refresh complete. No explicit Pluto IDs found, using default Pluto target.');
             end
         end
 
@@ -388,10 +360,11 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
         function onListenButton(app)
             if strcmp(app.Mode, 'LISTENING')
                 app.stopListening();
-                app.updateStatus('READY', 'Listening stopped. Request TX to transmit or start listening again.', [0.50 0.48 0.13], [0.96 0.86 0.33]);
                 app.ListenButton.Text = 'Start Listening';
                 app.ListenButton.BackgroundColor = [0.83 0.92 0.87];
                 app.RequestTxButton.Enable = 'on';
+                app.updateStatus('READY', 'Listening stopped.', [0.50 0.48 0.13], [0.96 0.86 0.33]);
+                app.logConsole('Listening stopped.');
                 return
             end
 
@@ -406,18 +379,22 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
                 app.ListenButton.BackgroundColor = [0.93 0.84 0.84];
                 app.RequestTxButton.Enable = 'on';
                 app.SendButton.Enable = 'off';
-                app.updateStatus('LISTENING', 'Receiver is polling the selected Pluto for incoming packets.', [0.08 0.40 0.24], [0.26 0.78 0.47]);
+                app.updateStatus('LISTENING', 'Receiver active and will ACK every decoded message.', [0.08 0.40 0.24], [0.26 0.78 0.47]);
+                app.logConsole('==============================');
+                app.logConsole(sprintf('RECEIVER ACTIVE - %s', upper(strtrim(app.SourceField.Value))));
+                app.logConsole('Will ACK every decoded message');
+                app.logConsole('==============================');
             catch ex
                 app.stopListening();
                 app.updateStatus('ERROR', ex.message, [0.70 0.10 0.10], [0.92 0.29 0.29]);
-                app.appendReceived(sprintf('[ERROR] %s', ex.message));
+                app.logConsole(['RX ERROR: ', ex.message]);
             end
         end
 
         function onRequestTx(app)
             if strcmp(app.Mode, 'TX READY')
                 app.setTxReady(false);
-                app.appendSent('[STATE] TX request cancelled. Receiver can be started again.');
+                app.logConsole('TX request cancelled.');
                 return
             end
 
@@ -429,7 +406,7 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
             app.ListenButton.Text = 'Start Listening';
             app.ListenButton.BackgroundColor = [0.83 0.92 0.87];
             app.setTxReady(true);
-            app.appendSent('[STATE] TX request granted locally. Send the packet now.');
+            app.logConsole('TX request granted. Ready to transmit.');
         end
 
         function setTxReady(app, isReady)
@@ -438,7 +415,7 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
                 app.RequestTxButton.Text = 'Cancel TX Request';
                 app.RequestTxButton.BackgroundColor = [0.95 0.76 0.34];
                 app.SendButton.Enable = 'on';
-                app.updateStatus('TX READY', 'Half-duplex transmit window opened. Press Send to key the radio.', [0.55 0.34 0.00], [0.95 0.76 0.34]);
+                app.updateStatus('TX READY', 'Half-duplex TX window opened.', [0.55 0.34 0.00], [0.95 0.76 0.34]);
             else
                 app.Mode = 'READY';
                 app.RequestTxButton.Text = 'Request TX';
@@ -454,7 +431,7 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
             msg = strtrim(strjoin(app.MessageArea.Value, newline));
 
             if ~strcmp(app.Mode, 'TX READY')
-                uialert(app.UIFigure, 'Request TX before sending so the app stays in half-duplex mode.', 'TX Not Armed');
+                uialert(app.UIFigure, 'Request TX before sending.', 'TX Not Armed');
                 return
             end
             if isempty(src) || isempty(dst)
@@ -469,22 +446,19 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
             app.Mode = 'TRANSMITTING';
             app.SendButton.Enable = 'off';
             app.RequestTxButton.Enable = 'off';
-            app.updateStatus('TRANSMITTING', 'Packet modulation and Pluto transmission are in progress.', [0.54 0.21 0.00], [0.99 0.63 0.16]);
+            app.updateStatus('TRANSMITTING', 'Transmitting and waiting for ACK like transmit.m.', [0.54 0.21 0.00], [0.99 0.63 0.16]);
             drawnow;
 
             try
-                [iq, txDuration] = plutoBuildPacketIQ(src, dst, msg, app.Config);
-                tx = app.createTransmitter();
-                transmitRepeat(tx, iq);
-                pause(txDuration + 0.25);
-                release(tx);
-
-                app.appendSent(sprintf('[TX][%s -> %s][gain %.0f dB] %s', src, dst, app.GainSlider.Value, msg));
+                ackResult = app.transmitAndWaitForAck(src, dst, msg);
+                app.appendChat(sprintf('[TX][%s -> %s] %s', src, dst, msg));
+                if ackResult.received
+                    app.appendChat(sprintf('[ACK][%s] %s', ackResult.src, ackResult.message));
+                end
                 app.MessageArea.Value = {''};
-                app.LastPacketKey = string(src) + "|" + string(dst) + "|" + string(msg);
-                app.LastPacketClock = tic;
             catch ex
-                app.appendSent(sprintf('[TX ERROR] %s', ex.message));
+                app.logConsole(['TX ERROR: ', ex.message]);
+                app.appendChat(sprintf('[TX ERROR] %s', ex.message));
             end
 
             app.RequestTxButton.Enable = 'on';
@@ -497,13 +471,14 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
                 app.startRxTimer();
                 app.ListenButton.Text = 'Stop Listening';
                 app.ListenButton.BackgroundColor = [0.93 0.84 0.84];
-                app.updateStatus('LISTENING', 'Transmit complete. Receiver resumed on the selected Pluto.', [0.08 0.40 0.24], [0.26 0.78 0.47]);
+                app.updateStatus('LISTENING', 'Transmit complete. Receiver resumed.', [0.08 0.40 0.24], [0.26 0.78 0.47]);
+                app.logConsole('Receiver resumed after transmit.');
             catch ex
                 app.Mode = 'READY';
                 app.ListenButton.Text = 'Start Listening';
                 app.ListenButton.BackgroundColor = [0.83 0.92 0.87];
-                app.updateStatus('READY', ['Transmit complete, but RX restart failed: ', ex.message], [0.50 0.48 0.13], [0.96 0.86 0.33]);
-                app.appendReceived(sprintf('[RX ERROR] %s', ex.message));
+                app.updateStatus('READY', 'Transmit complete, but RX restart failed.', [0.50 0.48 0.13], [0.96 0.86 0.33]);
+                app.logConsole(['RX restart failed: ', ex.message]);
             end
         end
 
@@ -511,26 +486,28 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
             app.MessageArea.Value = {''};
         end
 
-        function clearLogs(app)
-            app.SentArea.Value = {'[Sent log cleared]'};
-            app.ReceivedArea.Value = {'[Received log cleared]'};
+        function clearChat(app)
+            app.ChatArea.Value = {'[Chat cleared]'};
+            app.ConsoleArea.Value = {'[Session log ready]'};
         end
 
-        function appendSent(app, line)
-            app.SentArea.Value = app.appendLine(app.SentArea.Value, line);
-            scroll(app.SentArea, 'bottom');
+        function appendChat(app, line)
+            app.ChatArea.Value = app.appendLine(app.ChatArea.Value, line, {'[No traffic yet]', '[Chat cleared]'});
+            scroll(app.ChatArea, 'bottom');
         end
 
-        function appendReceived(app, line)
-            app.ReceivedArea.Value = app.appendLine(app.ReceivedArea.Value, line);
-            scroll(app.ReceivedArea, 'bottom');
+        function logConsole(app, line)
+            app.ConsoleArea.Value = app.appendLine(app.ConsoleArea.Value, line, {'[Session log ready]'});
+            scroll(app.ConsoleArea, 'bottom');
         end
 
-        function lines = appendLine(~, current, line)
+        function lines = appendLine(~, current, line, resetMarkers)
             stamped = sprintf('[%s] %s', datestr(now, 'HH:MM:SS'), line); %#ok<TNOW1,DATST>
-            if isempty(current) || (numel(current) == 1 && strcmp(current{1}, ''))
+            if isempty(current)
                 lines = {stamped};
-            elseif contains(current{1}, '[No messages') || contains(current{1}, '[Sent log') || contains(current{1}, '[Received log')
+                return
+            end
+            if numel(current) == 1 && any(strcmp(current{1}, resetMarkers))
                 lines = {stamped};
             else
                 lines = [current; {stamped}];
@@ -542,19 +519,95 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
             app.StatusLabel.Text = titleText;
             app.StatusLabel.FontColor = labelColor;
             app.StatusLamp.Color = lampColor;
-            app.ModeValueLabel.Text = ['Mode: ', detailText];
+            app.DetailLabel.Text = detailText;
+        end
+
+        function result = transmitAndWaitForAck(app, src, dst, msg)
+            cfg = app.Config;
+            result = struct('received', false, 'src', '', 'message', '');
+
+            [txSignal, txDuration] = plutoBuildPacketIQ(src, dst, msg, cfg);
+            tx = app.createTransmitter();
+            rx = app.createReceiver(cfg.rxGain);
+
+            app.logConsole('==============================');
+            app.logConsole(sprintf('TX: Sending "%s"', msg));
+            app.logConsole(sprintf('Waiting for ACK (timeout %ds)', cfg.ackTimeout));
+            app.logConsole('==============================');
+
+            transmitRepeat(tx, txSignal);
+            startClock = tic;
+
+            while toc(startClock) < cfg.ackTimeout
+                pause(0.2);
+
+                data = [];
+                for idx = 1:cfg.framesPerPoll
+                    data = [data; double(rx())]; %#ok<AGROW>
+                end
+                powerLevel = mean(abs(data).^2);
+
+                app.logConsole(sprintf('Listening for ACK - power: %.2f  elapsed: %.0fs', powerLevel, toc(startClock)));
+                if powerLevel < cfg.powerThreshold
+                    continue
+                end
+
+                audio = app.fmDemodulate(data);
+                bits = afsk_demodulate(audio, cfg.fs);
+                if isempty(bits)
+                    continue
+                end
+
+                try
+                    [ackSrc, ~, ackMsg] = ax25_decode(bits);
+                    app.logConsole(sprintf('Received from %s: %s', ackSrc, ackMsg));
+                    if strcmp(ackSrc, cfg.ackCall) && contains(ackMsg, 'ACK')
+                        result.received = true;
+                        result.src = ackSrc;
+                        result.message = ackMsg;
+                        app.logConsole('==============================');
+                        app.logConsole(sprintf('ACK RECEIVED FROM %s', ackSrc));
+                        app.logConsole(sprintf('MSG : %s', ackMsg));
+                        app.logConsole(sprintf('TIME: %.1f sec', toc(startClock)));
+                        app.logConsole('==============================');
+                        break
+                    end
+                catch
+                end
+            end
+
+            try
+                release(tx);
+            catch
+            end
+            try
+                release(rx);
+            catch
+            end
+
+            if result.received
+                app.logConsole('TX complete - message acknowledged.');
+            else
+                app.logConsole(sprintf('TX timed out after %.0f seconds - no ACK received.', cfg.ackTimeout));
+            end
+
+            pause(max(txDuration, 0.1));
         end
 
         function openReceiver(app)
             app.closeReceiver();
-            app.Rx = sdrrx('Pluto');
-            app.applyRadioSelection(app.Rx);
-            app.Rx.CenterFrequency = app.Config.centerFrequency;
-            app.Rx.BasebandSampleRate = app.Config.fs_sdr;
-            app.Rx.SamplesPerFrame = app.Config.fs_sdr;
-            app.Rx.OutputDataType = 'double';
-            app.Rx.GainSource = 'Manual';
-            app.Rx.Gain = app.Config.rxGain;
+            app.Rx = app.createReceiver(app.Config.agcGainCurrent);
+        end
+
+        function rx = createReceiver(app, gainValue)
+            rx = sdrrx('Pluto');
+            app.applyRadioSelection(rx);
+            rx.CenterFrequency = app.Config.centerFrequency;
+            rx.BasebandSampleRate = app.Config.fs_sdr;
+            rx.SamplesPerFrame = app.Config.fs_sdr;
+            rx.OutputDataType = 'double';
+            rx.GainSource = 'Manual';
+            rx.Gain = gainValue;
         end
 
         function tx = createTransmitter(app)
@@ -563,6 +616,14 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
             tx.CenterFrequency = app.Config.centerFrequency;
             tx.BasebandSampleRate = app.Config.fs_sdr;
             tx.Gain = round(app.GainSlider.Value);
+        end
+
+        function tx = createFixedGainTransmitter(app, gainValue)
+            tx = sdrtx('Pluto');
+            app.applyRadioSelection(tx);
+            tx.CenterFrequency = app.Config.centerFrequency;
+            tx.BasebandSampleRate = app.Config.fs_sdr;
+            tx.Gain = round(gainValue);
         end
 
         function applyRadioSelection(app, radioObj)
@@ -607,13 +668,27 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
                 for idx = 1:app.Config.framesPerPoll
                     data = [data; double(app.Rx())]; %#ok<AGROW>
                 end
-
                 powerLevel = mean(abs(data).^2);
-                if powerLevel < app.Config.powerThreshold
+
+                gainUpdate = app.applyRxAgc(powerLevel);
+                if gainUpdate.changed
+                    app.logConsole(sprintf('Power: %.1f  AGC -> %d dB', powerLevel, app.Config.agcGainCurrent));
                     return
                 end
 
+                app.logConsole(sprintf('Power: %.2f  Gain: %d dB', powerLevel, app.Config.agcGainCurrent));
+                if powerLevel < app.Config.powerThreshold
+                    app.logConsole('(no signal)');
+                    return
+                end
+                app.logConsole('(decoding)');
+
                 audio = app.fmDemodulate(data);
+                if max(abs(audio)) < 1e-4
+                    app.logConsole('too quiet');
+                    return
+                end
+
                 bits = afsk_demodulate(audio, app.Config.fs);
                 if isempty(bits)
                     return
@@ -627,15 +702,63 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
 
                 app.LastPacketKey = key;
                 app.LastPacketClock = tic;
-                app.appendReceived(sprintf('[RX][%s -> %s][power %.2f] %s', src, dst, powerLevel, msg));
+                app.logConsole('==============================');
+                app.logConsole('MESSAGE RECEIVED');
+                app.logConsole(sprintf('FROM : %s', src));
+                app.logConsole(sprintf('TO   : %s', dst));
+                app.logConsole(sprintf('MSG  : %s', msg));
+                app.logConsole('==============================');
+                app.appendChat(sprintf('[RX][%s -> %s] %s', src, dst, msg));
+
+                app.sendAckForReceivedMessage(src, msg);
             catch ex
-                app.appendReceived(sprintf('[RX ERROR] %s', ex.message));
+                app.logConsole(['RX ERROR: ', ex.message]);
                 app.stopListening();
                 app.ListenButton.Text = 'Start Listening';
                 app.ListenButton.BackgroundColor = [0.83 0.92 0.87];
                 app.RequestTxButton.Enable = 'on';
-                app.updateStatus('READY', 'Receiver stopped after an RX error. Check Pluto connection and restart listening.', [0.50 0.48 0.13], [0.96 0.86 0.33]);
+                app.updateStatus('READY', 'Receiver stopped after an RX error.', [0.50 0.48 0.13], [0.96 0.86 0.33]);
             end
+        end
+
+        function result = applyRxAgc(app, powerLevel)
+            result.changed = false;
+            if powerLevel <= 1.0
+                return
+            end
+
+            if powerLevel > app.Config.agcMax || powerLevel < app.Config.agcMin
+                errordB = 10 * log10(app.Config.agcTarget / max(powerLevel, 0.01));
+                gainStep = max(-5, min(5, round(errordB * 0.5)));
+                gainNew = max(app.Config.agcGainMin, min(app.Config.agcGainMax, app.Config.agcGainCurrent + gainStep));
+                if gainNew ~= app.Config.agcGainCurrent
+                    app.Config.agcGainCurrent = gainNew;
+                    app.Rx.Gain = gainNew;
+                    result.changed = true;
+                end
+            end
+        end
+
+        function sendAckForReceivedMessage(app, src, msg)
+            app.logConsole(sprintf('Sending ACK to %s...', src));
+            previewLength = min(app.Config.rxAckPreviewLength, length(msg));
+            ackText = sprintf('ACK:%s', msg(1:previewLength));
+            [ackIQ, ~] = plutoBuildPacketIQ(app.Config.ackCall, src, ackText, app.Config);
+
+            app.closeReceiver();
+            pause(0.1);
+            tx = app.createFixedGainTransmitter(-10);
+            transmitRepeat(tx, ackIQ);
+            pause(2.5);
+            try
+                release(tx);
+            catch
+            end
+            pause(0.1);
+
+            app.openReceiver();
+            app.logConsole('ACK sent - resuming receive');
+            app.appendChat(sprintf('[ACK][%s -> %s] %s', app.Config.ackCall, src, ackText));
         end
 
         function tf = isDuplicatePacket(app, key)
