@@ -2,57 +2,77 @@ function bitstream = afsk_demodulate(audio, fs)
 
 audio = audio(:);
 audio = audio / (max(abs(audio)) + 1e-6);
-% Strip leading and trailing near-zero sections (carrier padding)
-% This prevents the matched filter from wasting time on silent regions
-threshold = 0.05;
-active    = find(abs(audio) > threshold);
-if length(active) < 100
-    bitstream = [];
-    return;
-end
-audio = audio(active(1):active(end));
-Rb  = 1200;
-Ns  = round(fs / Rb);   % 40 samples per symbol
-fs  = Rb * Ns;          % enforce exact rate
+
+Rb = 1200;
+Ns = round(fs / Rb);
 
 f_mark  = 1200;
 f_space = 2200;
 
-%% Step 1 — matched filter approach instead of block Goertzel
-% Correlate with reference tones over a sliding 1-symbol window
-n  = (0:Ns-1)';
-ref_mark  = exp( 1j*2*pi*f_mark /fs*n);
-ref_space = exp( 1j*2*pi*f_space/fs*n);
+% Goertzel setup
+k_mark  = round(f_mark * Ns / fs);
+k_space = round(f_space * Ns / fs);
 
-% Compute energy at each sample via sliding correlation
-E_mark  = abs(conv(audio, conj(flipud(ref_mark )), 'same')).^2;
-E_space = abs(conv(audio, conj(flipud(ref_space)), 'same')).^2;
+w_mark  = 2*pi*k_mark/Ns;
+w_space = 2*pi*k_space/Ns;
 
-% Decision signal: +1 where mark dominates, -1 where space dominates
-decision = double(E_mark > E_space);
+coeff_mark  = 2*cos(w_mark);
+coeff_space = 2*cos(w_space);
 
-%% Step 2 — symbol timing recovery
-% Find the best sampling offset by maximising decision confidence
-% (largest average energy difference at sampling instants)
-best_bits  = [];
+best_bits = [];
 best_score = -inf;
 
 for offset = 1:Ns
-    sample_idx = offset:Ns:length(decision);
-    if isempty(sample_idx), continue; end
-
-    sampled_mark  = E_mark(sample_idx);
-    sampled_space = E_space(sample_idx);
-    margin = sampled_mark - sampled_space;
-
-    % Score = mean absolute margin (high = confident decisions)
-    score = mean(abs(margin));
-
+    
+    idx = offset;
+    bits = [];
+    
+    while (idx + Ns - 1) <= length(audio)
+        
+        segment = audio(idx : idx + Ns - 1);
+        
+        % --- MARK ---
+        s_prev = 0; s_prev2 = 0;
+        for n = 1:Ns
+            s = segment(n) + coeff_mark*s_prev - s_prev2;
+            s_prev2 = s_prev;
+            s_prev = s;
+        end
+        power_mark = s_prev2^2 + s_prev^2 - coeff_mark*s_prev*s_prev2;
+        
+        % --- SPACE ---
+        s_prev = 0; s_prev2 = 0;
+        for n = 1:Ns
+            s = segment(n) + coeff_space*s_prev - s_prev2;
+            s_prev2 = s_prev;
+            s_prev = s;
+        end
+        power_space = s_prev2^2 + s_prev^2 - coeff_space*s_prev*s_prev2;
+        
+        bits(end+1) = (power_mark > power_space);
+        
+        idx = idx + Ns;
+    end
+    
+    % 🔥 BEST SCORING METHOD
+    try
+        [~,~,~] = ax25_decode(bits);
+        score = 100;   % perfect decode
+    catch
+        score = 0;
+    end
+    
     if score > best_score
         best_score = score;
-        best_bits  = double(margin > 0);
+        best_bits = bits;
     end
 end
 
-bitstream = best_bits(:)';
+% fallback (if no perfect decode found)
+if isempty(best_bits)
+    best_bits = bits;
+end
+
+bitstream = best_bits;
+
 end

@@ -37,10 +37,13 @@ fprintf('==============================\n');
 while true
     %% 1 — RECEIVE
     %% 1 — RECEIVE (grab two frames and stitch)
-    data1 = rx();
-    data2 = rx();
-    data  = double([data1; data2]);   % 2 seconds of signal
-    power = mean(abs(data).^2);
+    %% 1 — RECEIVE (3 frames to guarantee full transmission is captured)
+data1 = rx();
+data2 = rx();
+data3 = rx();
+data  = double([data1; data2; data3]);   % 3 seconds — TX loop is 2s so full frame always inside
+power = mean(abs(data).^2);  % 2 seconds of signal
+  
   
 
     %% 2 — AGC: adjust gain based on received power
