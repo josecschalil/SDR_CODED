@@ -57,7 +57,7 @@ fprintf('Signal occupies %.1f%% of frame\n', signal_len/total_samples*100);
 tx = sdrtx('Pluto');
 tx.CenterFrequency    = 433e6;
 tx.BasebandSampleRate = fs_sdr;
-tx.Gain               = -10;
+tx.Gain               = -2;
 
 fprintf('==============================\n');
 fprintf('TRANSMITTING — looping for 60 sec\n');
