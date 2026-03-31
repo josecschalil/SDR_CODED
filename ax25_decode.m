@@ -1,180 +1,125 @@
 function [src, dest, message] = ax25_decode(nrzi_bits)
 
-bitstream = nrzi_decode(nrzi_bits);
+%% 1 — NRZI decode
+bitstream = nrzi_decode(nrzi_bits(:).');
 
-flag = [0 1 1 1 1 1 1 0];
+%% 2 — Find flags using proper numeric search
+flag      = [0 1 1 1 1 1 1 0];
+flag_pos  = find_flags(bitstream, flag);
 
-start_idx = strfind(bitstream, flag);
-
-if length(start_idx) < 2
-    error('Not enough flags found');
+if length(flag_pos) < 2
+    error('Not enough flags found (found %d)', length(flag_pos));
 end
 
-% Try all frame candidates
-for i = 1:length(start_idx)-1
-    
-    payload_bits = bitstream(start_idx(i)+8 : start_idx(i+1)-1);
-    
+%% 3 — Try every consecutive flag pair as a frame candidate
+for i = 1:length(flag_pos)-1
+    frame_start = flag_pos(i)   + 8;   % skip opening flag
+    frame_end   = flag_pos(i+1) - 1;   % up to but not including closing flag
+
+    if frame_end <= frame_start
+        continue;
+    end
+
+    payload_bits = bitstream(frame_start:frame_end);
+
     try
         [src, dest, message] = decode_payload(payload_bits);
-        return;
+        return;   % success — return immediately
     catch
-        % try next
+        % try next candidate
     end
 end
 
 error('FCS check FAILED for all frame candidates');
-
-
-%% 2. Remove bit stuffing
-unstuffed = [];
-count = 0;
-
-i = 1;
-while i <= length(payload_bits)
-    unstuffed = [unstuffed payload_bits(i)];
-    
-    if payload_bits(i) == 1
-        count = count + 1;
-        if count == 5
-            % skip next stuffed 0
-            i = i + 1;
-            count = 0;
-        end
-    else
-        count = 0;
-    end
-    
-    i = i + 1;
 end
 
-%% 3. Convert bits → bytes (LSB first)
-num_bytes = floor(length(unstuffed)/8);
-bytes = zeros(1, num_bytes, 'uint8');
-
-for i = 1:num_bytes
-    b = unstuffed((i-1)*8 + (1:8));
-    bytes(i) = bi2de(b, 'right-msb');
-end
-
-%% 4. Extract FCS
-data = bytes(1:end-2);
-recv_fcs = uint16(bytes(end-1)) + bitshift(uint16(bytes(end)),8);
-
-calc_fcs = crc_ccitt(data);
-
-if recv_fcs ~= calc_fcs
-    error('FCS check FAILED');
-end
-
-%% 5. Decode addresses
-% Address structure:
-% dest (7 bytes) + src (7 bytes)
-
-dest_bytes = data(1:7);
-src_bytes  = data(8:14);
-
-dest = decode_callsign(dest_bytes);
-src  = decode_callsign(src_bytes);
-
-%% 6. Extract INFO field
-% Skip: 14 addr + CTRL + PID
-CTRL_idx = 15;
-PID_idx  = 16;
-
-info = data(17:end);
-
-message = char(info);
-
-end
-
-
-%% -------- Helper Functions --------
-
-function callsign = decode_callsign(addr_bytes)
-
-chars = char(bitshift(addr_bytes(1:6), -1));
-callsign = strtrim(chars);
-
-end
-
-
-function fcs = crc_ccitt(data)
-
-poly = hex2dec('1021');
-fcs = uint16(hex2dec('FFFF'));
-
-for i = 1:length(data)
-    fcs = bitxor(fcs, bitshift(uint16(data(i)),8));
-    
-    for j = 1:8
-        if bitand(fcs, hex2dec('8000'))
-            fcs = bitxor(bitshift(fcs,1), poly);
-        else
-            fcs = bitshift(fcs,1);
-        end
-        fcs = bitand(fcs, hex2dec('FFFF'));
-    end
-end
-
-% Final XOR
-fcs = bitxor(fcs, hex2dec('FFFF'));
-
-end
+%% ── PAYLOAD DECODER ─────────────────────────────────────────────────────────
 
 function [src, dest, message] = decode_payload(payload_bits)
 
 %% Remove bit stuffing
 unstuffed = [];
-count = 0;
-
+ones_count = 0;
 i = 1;
 while i <= length(payload_bits)
-    unstuffed = [unstuffed payload_bits(i)];
-    
-    if payload_bits(i) == 1
-        count = count + 1;
-        if count == 5
-            i = i + 1;
-            count = 0;
+    b = payload_bits(i);
+    unstuffed(end+1) = b;
+    if b == 1
+        ones_count = ones_count + 1;
+        if ones_count == 5
+            i = i + 1;   % skip the stuffed 0
+            ones_count = 0;
         end
     else
-        count = 0;
+        ones_count = 0;
     end
-    
     i = i + 1;
 end
 
-%% Bits → bytes
-num_bytes = floor(length(unstuffed)/8);
-
-if num_bytes < 16
-    error('Frame too short');
+%% Bits → bytes (LSB first per AX.25)
+num_bytes = floor(length(unstuffed) / 8);
+if num_bytes < 18   % 7+7+1+1+0data+2fcs minimum
+    error('Frame too short: %d bytes', num_bytes);
 end
 
 bytes = zeros(1, num_bytes, 'uint8');
-
-for i = 1:num_bytes
-    b = unstuffed((i-1)*8 + (1:8));
-    bytes(i) = bi2de(b, 'right-msb');
+for k = 1:num_bytes
+    bytes(k) = uint8(bi2de(unstuffed((k-1)*8 + (1:8)), 'right-msb'));
 end
 
-%% Extract FCS
-data = bytes(1:end-2);
-
-recv_fcs = uint16(bytes(end-1)) + bitshift(uint16(bytes(end)),8);
+%% FCS check
+% AX.25: FCS is last 2 bytes, low byte first
+data     = bytes(1:end-2);
+recv_fcs = uint16(bytes(end-1)) + bitshift(uint16(bytes(end)), 8);
 calc_fcs = crc_ccitt(data);
 
 if recv_fcs ~= calc_fcs
-    error('FCS failed');
+    error('FCS mismatch: received 0x%04X, calculated 0x%04X', recv_fcs, calc_fcs);
 end
 
-%% Decode addresses
+%% Decode addresses (7 bytes each, chars are left-shifted by 1)
+if length(data) < 16
+    error('Data too short for address fields');
+end
 dest = decode_callsign(data(1:7));
 src  = decode_callsign(data(8:14));
 
-%% Extract message
-info = data(17:end);
-message = char(info);
+%% Extract INFO field (skip 14 addr + 1 CTRL + 1 PID = bytes 15,16)
+message = char(data(17:end));
+end
 
+%% ── HELPERS ─────────────────────────────────────────────────────────────────
+
+function idx = find_flags(bits, flag)
+% Proper numeric flag search — strfind does NOT work on double arrays
+    n   = length(flag);
+    idx = [];
+    for k = 1:(length(bits) - n + 1)
+        if all(bits(k:k+n-1) == flag)
+            idx(end+1) = k;
+        end
+    end
+end
+
+function callsign = decode_callsign(addr_bytes)
+% Each character byte is left-shifted by 1 in AX.25 — shift right to recover
+    chars    = char(bitshift(uint8(addr_bytes(1:6)), -1));
+    callsign = strtrim(chars);
+end
+
+function fcs = crc_ccitt(data)
+    poly = uint16(hex2dec('1021'));
+    fcs  = uint16(hex2dec('FFFF'));
+    for i = 1:length(data)
+        fcs = bitxor(fcs, bitshift(uint16(data(i)), 8));
+        for j = 1:8
+            if bitand(fcs, uint16(hex2dec('8000')))
+                fcs = bitxor(bitshift(fcs, 1), poly);
+            else
+                fcs = bitshift(fcs, 1);
+            end
+            fcs = bitand(fcs, uint16(hex2dec('FFFF')));
+        end
+    end
+    fcs = bitxor(fcs, uint16(hex2dec('FFFF')));
 end
