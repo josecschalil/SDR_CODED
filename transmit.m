@@ -3,7 +3,7 @@ clc; clear;
 fs     = 48000;
 fs_sdr = 960000;
 dev    = 5000;
-msg    = 'HELLO FROM SDR';
+msg    = 'HELLO hII SDR';
 
 MY_CALL  = 'N0CALL';
 DEST     = 'APRS';

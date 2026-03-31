@@ -24,6 +24,7 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
         RefreshButton       matlab.ui.control.Button
         ListenButton        matlab.ui.control.Button
         RequestTxButton     matlab.ui.control.Button
+        ReleaseTxButton     matlab.ui.control.Button
         ConsoleArea         matlab.ui.control.TextArea
 
         ChatPanel           matlab.ui.container.Panel
@@ -44,6 +45,10 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
         Config struct
         LastPacketKey string = ""
         LastPacketClock double = NaN
+        SessionActive logical = false
+        CurrentTxOwner string = ""
+        PendingTxRequester string = ""
+        SessionKey string = ""
     end
 
     methods (Access = public)
@@ -88,6 +93,10 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
             cfg.agcGainMin = 0;
             cfg.agcGainMax = 60;
             cfg.agcGainCurrent = 20;
+            cfg.ctrlConnect = '__CTRL_CONNECT__';
+            cfg.ctrlRequestTx = '__CTRL_REQ_TX__';
+            cfg.ctrlGrantTx = '__CTRL_GRANT_TX__';
+            cfg.ctrlReleaseTx = '__CTRL_RELEASE_TX__';
         end
 
         function createComponents(app)
@@ -161,8 +170,8 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
             app.LeftPanel.FontWeight = 'bold';
             app.LeftPanel.BackgroundColor = [1 1 1];
 
-            app.LeftGrid = uigridlayout(app.LeftPanel, [14 2]);
-            app.LeftGrid.RowHeight = {22, 30, 22, 30, 22, 44, 22, 30, 30, 38, 38, 22, '1x', 24};
+            app.LeftGrid = uigridlayout(app.LeftPanel, [15 2]);
+            app.LeftGrid.RowHeight = {22, 30, 22, 30, 22, 44, 22, 30, 30, 38, 38, 22, 22, '1x', 24};
             app.LeftGrid.ColumnWidth = {'1x', 72};
             app.LeftGrid.Padding = [14 14 14 14];
 
@@ -244,27 +253,36 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
             app.RequestTxButton.BackgroundColor = [0.98 0.92 0.77];
             app.RequestTxButton.ButtonPushedFcn = @(~, ~) app.onRequestTx();
 
+            app.ReleaseTxButton = uibutton(app.LeftGrid, 'push');
+            app.ReleaseTxButton.Layout.Row = 11;
+            app.ReleaseTxButton.Layout.Column = [1 2];
+            app.ReleaseTxButton.Text = 'Release TX Control';
+            app.ReleaseTxButton.FontWeight = 'bold';
+            app.ReleaseTxButton.Enable = 'off';
+            app.ReleaseTxButton.BackgroundColor = [0.90 0.89 0.97];
+            app.ReleaseTxButton.ButtonPushedFcn = @(~, ~) app.onReleaseTx();
+
             logLabel = uilabel(app.LeftGrid);
-            logLabel.Layout.Row = 11;
+            logLabel.Layout.Row = 12;
             logLabel.Layout.Column = [1 2];
             logLabel.Text = 'SCRIPT-STYLE SESSION LOG';
             logLabel.FontWeight = 'bold';
 
             helperLabel = uilabel(app.LeftGrid);
-            helperLabel.Layout.Row = 12;
+            helperLabel.Layout.Row = 13;
             helperLabel.Layout.Column = [1 2];
-            helperLabel.Text = 'Left pane mirrors transmit.m / receive.m console flow.';
+            helperLabel.Text = 'Same TX/RX path plus control keywords for token handoff.';
             helperLabel.FontColor = [0.43 0.47 0.52];
 
             app.ConsoleArea = uitextarea(app.LeftGrid);
-            app.ConsoleArea.Layout.Row = 13;
+            app.ConsoleArea.Layout.Row = 14;
             app.ConsoleArea.Layout.Column = [1 2];
             app.ConsoleArea.Editable = 'off';
             app.ConsoleArea.FontName = 'Courier New';
             app.ConsoleArea.Value = {'[Session log ready]'};
 
             footer = uilabel(app.LeftGrid);
-            footer.Layout.Row = 14;
+            footer.Layout.Row = 15;
             footer.Layout.Column = [1 2];
             footer.Text = sprintf('Center frequency: %.3f MHz', app.Config.centerFrequency / 1e6);
             footer.FontColor = [0.43 0.47 0.52];
@@ -363,22 +381,20 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
                 app.ListenButton.Text = 'Start Listening';
                 app.ListenButton.BackgroundColor = [0.83 0.92 0.87];
                 app.RequestTxButton.Enable = 'on';
+                app.ReleaseTxButton.Enable = 'off';
                 app.updateStatus('READY', 'Listening stopped.', [0.50 0.48 0.13], [0.96 0.86 0.33]);
                 app.logConsole('Listening stopped.');
                 return
             end
 
-            if strcmp(app.Mode, 'TX READY')
-                app.setTxReady(false);
-            end
-
             try
+                app.initializeSession();
                 app.openReceiver();
                 app.startRxTimer();
                 app.ListenButton.Text = 'Stop Listening';
                 app.ListenButton.BackgroundColor = [0.93 0.84 0.84];
                 app.RequestTxButton.Enable = 'on';
-                app.SendButton.Enable = 'off';
+                app.refreshTokenUi();
                 app.updateStatus('LISTENING', 'Receiver active and will ACK every decoded message.', [0.08 0.40 0.24], [0.26 0.78 0.47]);
                 app.logConsole('==============================');
                 app.logConsole(sprintf('RECEIVER ACTIVE - %s', upper(strtrim(app.SourceField.Value))));
@@ -392,9 +408,7 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
         end
 
         function onRequestTx(app)
-            if strcmp(app.Mode, 'TX READY')
-                app.setTxReady(false);
-                app.logConsole('TX request cancelled.');
+            if ~app.ensureSessionReady()
                 return
             end
 
@@ -402,27 +416,38 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
                 return
             end
 
-            app.stopListening();
-            app.ListenButton.Text = 'Start Listening';
-            app.ListenButton.BackgroundColor = [0.83 0.92 0.87];
-            app.setTxReady(true);
-            app.logConsole('TX request granted. Ready to transmit.');
+            if app.sourceHasTxControl()
+                app.logConsole('This station already has TX control.');
+                app.appendEmphasizedChat('You already hold TX control.');
+                return
+            end
+
+            ctrlMessage = sprintf('%s:%s', app.Config.ctrlRequestTx, upper(strtrim(app.SourceField.Value)));
+            app.performControlTransmit(ctrlMessage, 'TX request sent to remote station.');
+            app.PendingTxRequester = upper(strtrim(app.SourceField.Value));
+            app.appendEmphasizedChat(sprintf('TX REQUEST SENT by %s', upper(strtrim(app.SourceField.Value))));
         end
 
-        function setTxReady(app, isReady)
-            if isReady
-                app.Mode = 'TX READY';
-                app.RequestTxButton.Text = 'Cancel TX Request';
-                app.RequestTxButton.BackgroundColor = [0.95 0.76 0.34];
-                app.SendButton.Enable = 'on';
-                app.updateStatus('TX READY', 'Half-duplex TX window opened.', [0.55 0.34 0.00], [0.95 0.76 0.34]);
-            else
-                app.Mode = 'READY';
-                app.RequestTxButton.Text = 'Request TX';
-                app.RequestTxButton.BackgroundColor = [0.98 0.92 0.77];
-                app.SendButton.Enable = 'off';
-                app.updateStatus('READY', 'Radio idle. Start listening or request TX.', [0.50 0.48 0.13], [0.96 0.86 0.33]);
+        function onReleaseTx(app)
+            if ~app.ensureSessionReady()
+                return
             end
+            if ~app.sourceHasTxControl()
+                app.logConsole('Cannot release TX because this station is not the current owner.');
+                return
+            end
+
+            target = app.PendingTxRequester;
+            if strlength(target) == 0
+                target = string(upper(strtrim(app.DestinationField.Value)));
+            end
+
+            grantMessage = sprintf('%s:%s', app.Config.ctrlGrantTx, target);
+            app.performControlTransmit(grantMessage, sprintf('Released TX control to %s.', target));
+            app.CurrentTxOwner = target;
+            app.PendingTxRequester = "";
+            app.appendEmphasizedChat(sprintf('TX CONTROL RELEASED TO %s', target));
+            app.refreshTokenUi();
         end
 
         function onSend(app)
@@ -430,8 +455,11 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
             dst = upper(strtrim(app.DestinationField.Value));
             msg = strtrim(strjoin(app.MessageArea.Value, newline));
 
-            if ~strcmp(app.Mode, 'TX READY')
-                uialert(app.UIFigure, 'Request TX before sending.', 'TX Not Armed');
+            if ~app.ensureSessionReady()
+                return
+            end
+            if ~app.sourceHasTxControl()
+                uialert(app.UIFigure, 'This station does not currently hold TX control. Use Request TX first.', 'TX Control Required');
                 return
             end
             if isempty(src) || isempty(dst)
@@ -446,6 +474,8 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
             app.Mode = 'TRANSMITTING';
             app.SendButton.Enable = 'off';
             app.RequestTxButton.Enable = 'off';
+            app.ReleaseTxButton.Enable = 'off';
+            app.stopListening();
             app.updateStatus('TRANSMITTING', 'Transmitting and waiting for ACK like transmit.m.', [0.54 0.21 0.00], [0.99 0.63 0.16]);
             drawnow;
 
@@ -462,9 +492,7 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
             end
 
             app.RequestTxButton.Enable = 'on';
-            app.RequestTxButton.Text = 'Request TX';
-            app.RequestTxButton.BackgroundColor = [0.98 0.92 0.77];
-            app.SendButton.Enable = 'off';
+            app.refreshTokenUi();
 
             try
                 app.openReceiver();
@@ -480,6 +508,101 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
                 app.updateStatus('READY', 'Transmit complete, but RX restart failed.', [0.50 0.48 0.13], [0.96 0.86 0.33]);
                 app.logConsole(['RX restart failed: ', ex.message]);
             end
+        end
+
+        function initializeSession(app)
+            source = string(upper(strtrim(app.SourceField.Value)));
+            destination = string(upper(strtrim(app.DestinationField.Value)));
+            if strlength(source) == 0 || strlength(destination) == 0
+                error('Source and destination callsigns are required to start a session.');
+            end
+
+            sessionKey = source + "|" + destination;
+            if app.SessionActive && app.SessionKey == sessionKey
+                app.refreshTokenUi();
+                return
+            end
+
+            app.SessionActive = true;
+            app.SessionKey = sessionKey;
+            app.PendingTxRequester = "";
+            app.CurrentTxOwner = app.determineInitialTxOwner(source, destination);
+            app.appendEmphasizedChat(sprintf('SESSION CONNECTED: %s <-> %s', source, destination));
+            app.appendEmphasizedChat(sprintf('INITIAL TX OWNER: %s', app.CurrentTxOwner));
+            app.logConsole(sprintf('Session established between %s and %s', source, destination));
+            app.logConsole(sprintf('Initial TX owner by callsign length rule: %s', app.CurrentTxOwner));
+            app.refreshTokenUi();
+        end
+
+        function owner = determineInitialTxOwner(~, source, destination)
+            if strlength(source) < strlength(destination)
+                owner = source;
+            elseif strlength(destination) < strlength(source)
+                owner = destination;
+            else
+                pair = sort({char(source), char(destination)});
+                owner = string(pair{1});
+            end
+        end
+
+        function tf = ensureSessionReady(app)
+            tf = true;
+            if ~app.SessionActive
+                uialert(app.UIFigure, 'Start Listening first so the session can be initialized.', 'Session Not Started');
+                tf = false;
+            end
+        end
+
+        function tf = sourceHasTxControl(app)
+            tf = app.CurrentTxOwner == string(upper(strtrim(app.SourceField.Value)));
+        end
+
+        function refreshTokenUi(app)
+            hasToken = app.sourceHasTxControl();
+            if hasToken
+                app.SendButton.Enable = 'on';
+                app.ReleaseTxButton.Enable = 'on';
+            else
+                app.SendButton.Enable = 'off';
+                app.ReleaseTxButton.Enable = 'off';
+            end
+            if hasToken
+                app.RequestTxButton.Text = 'Request TX';
+                app.updateStatus('TX CONTROL', sprintf('%s currently holds the token.', char(app.CurrentTxOwner)), [0.17 0.33 0.68], [0.30 0.48 0.96]);
+            else
+                app.RequestTxButton.Text = 'Request TX';
+                app.updateStatus('LISTENING', sprintf('Waiting for TX control from %s.', char(app.CurrentTxOwner)), [0.08 0.40 0.24], [0.26 0.78 0.47]);
+            end
+        end
+
+        function performControlTransmit(app, controlMessage, successLog)
+            app.Mode = 'TRANSMITTING';
+            app.RequestTxButton.Enable = 'off';
+            app.ReleaseTxButton.Enable = 'off';
+            app.SendButton.Enable = 'off';
+            app.stopListening();
+            app.updateStatus('TRANSMITTING', 'Sending control packet using the same radio path.', [0.54 0.21 0.00], [0.99 0.63 0.16]);
+            drawnow;
+
+            src = upper(strtrim(app.SourceField.Value));
+            dst = upper(strtrim(app.DestinationField.Value));
+            app.transmitAndWaitForAck(src, dst, controlMessage);
+            app.logConsole(successLog);
+
+            app.RequestTxButton.Enable = 'on';
+            try
+                app.openReceiver();
+                app.startRxTimer();
+                app.ListenButton.Text = 'Stop Listening';
+                app.ListenButton.BackgroundColor = [0.93 0.84 0.84];
+            catch ex
+                app.logConsole(['RX restart failed after control packet: ', ex.message]);
+            end
+            app.refreshTokenUi();
+        end
+
+        function appendEmphasizedChat(app, line)
+            app.appendChat(['*** ', line, ' ***']);
         end
 
         function clearDraft(app)
@@ -708,8 +831,12 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
                 app.logConsole(sprintf('TO   : %s', dst));
                 app.logConsole(sprintf('MSG  : %s', msg));
                 app.logConsole('==============================');
-                app.appendChat(sprintf('[RX][%s -> %s] %s', src, dst, msg));
+                if app.handleControlMessage(src, dst, msg)
+                    app.sendAckForReceivedMessage(src, msg);
+                    return
+                end
 
+                app.appendChat(sprintf('[RX][%s -> %s] %s', src, dst, msg));
                 app.sendAckForReceivedMessage(src, msg);
             catch ex
                 app.logConsole(['RX ERROR: ', ex.message]);
@@ -718,6 +845,57 @@ classdef HalfDuplexChatApp < matlab.apps.AppBase
                 app.ListenButton.BackgroundColor = [0.83 0.92 0.87];
                 app.RequestTxButton.Enable = 'on';
                 app.updateStatus('READY', 'Receiver stopped after an RX error.', [0.50 0.48 0.13], [0.96 0.86 0.33]);
+            end
+        end
+
+        function handled = handleControlMessage(app, src, dst, msg)
+            handled = false;
+            if startsWith(msg, app.Config.ctrlRequestTx)
+                requester = string(app.messagePayload(msg));
+                app.PendingTxRequester = requester;
+                app.appendEmphasizedChat(sprintf('TX REQUEST FROM %s', requester));
+                app.logConsole(sprintf('Control request received from %s', requester));
+                handled = true;
+                app.refreshTokenUi();
+                return
+            end
+
+            if startsWith(msg, app.Config.ctrlGrantTx)
+                newOwner = string(app.messagePayload(msg));
+                app.CurrentTxOwner = newOwner;
+                app.PendingTxRequester = "";
+                app.appendEmphasizedChat(sprintf('TX CONTROL GRANTED TO %s', newOwner));
+                app.logConsole(sprintf('Control grant received. New TX owner: %s', newOwner));
+                handled = true;
+                app.refreshTokenUi();
+                return
+            end
+
+            if startsWith(msg, app.Config.ctrlReleaseTx)
+                newOwner = string(app.messagePayload(msg));
+                app.CurrentTxOwner = newOwner;
+                app.PendingTxRequester = "";
+                app.appendEmphasizedChat(sprintf('TX CONTROL RELEASED TO %s', newOwner));
+                app.logConsole(sprintf('Control release received. New TX owner: %s', newOwner));
+                handled = true;
+                app.refreshTokenUi();
+                return
+            end
+
+            if startsWith(msg, app.Config.ctrlConnect)
+                app.appendEmphasizedChat(sprintf('SESSION CONTROL: %s -> %s', src, dst));
+                app.logConsole(sprintf('Connection control received from %s', src));
+                handled = true;
+            end
+        end
+
+        function payload = messagePayload(~, msg)
+            parts = split(string(msg), ':');
+            if numel(parts) >= 2
+                payload = join(parts(2:end), ':');
+                payload = char(payload);
+            else
+                payload = '';
             end
         end
 
