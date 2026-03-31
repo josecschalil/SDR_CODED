@@ -2,95 +2,108 @@ clc;
 clear;
 
 %% PARAMETERS
-fs = 48000;           % Audio sample rate
-fs_sdr = 1000000;     % SDR sample rate
-freq_dev = 3000;      % FM deviation
+fs = 48000;
+fs_sdr = 1000000;
 
 %% SDR SETUP
 rx = sdrrx('Pluto');
-rx.CenterFrequency = 433e6;   % Adjust slightly if needed
+rx.CenterFrequency = 433e6;   % Try small offsets later if needed
 rx.BasebandSampleRate = fs_sdr;
 rx.SamplesPerFrame = 4096;
 rx.GainSource = 'Manual';
 rx.Gain = 60;
 
 fprintf('==============================\n');
-fprintf('RECEIVER STARTED\n');
-fprintf('Waiting for packets...\n');
+fprintf('RECEIVER DEBUG MODE STARTED\n');
 fprintf('==============================\n');
 
 %% BUFFER
 buffer = [];
 flag = [0 1 1 1 1 1 1 0];
 
-%% BANDPASS FILTER (AFSK: 1200–2200 Hz)
-bp = designfilt('bandpassiir', ...
-'FilterOrder', 6, ...
-'HalfPowerFrequency1', 800, ...
-'HalfPowerFrequency2', 2600, ...
-'SampleRate', fs_sdr);
-
-%% MAIN LOOP
+%% LOOP
 while true
 
 %% RECEIVE RF
 data = rx();
 data = double(data);
 
+%% SIGNAL POWER CHECK
+power = mean(abs(data).^2);
+fprintf('Power: %.2f\n', power);
+
 %% FM DEMOD (ROBUST)
 fm = angle(data(2:end) .* conj(data(1:end-1)));
 fm = [fm; fm(end)];
 
-%% FILTER (CRITICAL)
-fm = filtfilt(bp, fm);
+%% REMOVE DC
+fm = fm - mean(fm);
+
+%% SMOOTHING FILTER
+fm = filtfilt(ones(1,25)/25, 1, fm);
+
+%% BANDPASS (AFSK: 1200–2200 Hz)
+[b, a] = butter(4, [800 2600]/(fs_sdr/2), 'bandpass');
+fm = filtfilt(b, a, fm);
+
+%% NORMALIZE
+fm = fm / max(abs(fm) + 1e-6);
 
 %% ADD TO BUFFER
 buffer = [buffer; fm];
 
-%% KEEP BUFFER LIMITED
+%% LIMIT BUFFER SIZE
 if length(buffer) > fs_sdr
     buffer = buffer(end-fs_sdr+1:end);
 end
 
-%% PROCESS WHEN ENOUGH DATA
+%% WAIT FOR ENOUGH DATA
 if length(buffer) < fs_sdr/2
     continue;
 end
 
-%% DOWNSAMPLE (CLEAN)
+%% DOWNSAMPLE
 audio = decimate(buffer(1:fs_sdr/2), round(fs_sdr/fs));
 
 %% SLIDING WINDOW
 buffer = buffer(fs_sdr/4:end);
 
-%% DEBUG (OPTIONAL)
-% plot(audio(1:200))
-% title('Recovered Audio')
-% drawnow
+%% FINAL CLEANUP
+audio = audio - mean(audio);
+audio = audio / max(abs(audio) + 1e-6);
+
+%% DEBUG: VISUAL CHECK
+figure(1);
+plot(audio(1:200));
+title('Recovered Audio');
+drawnow;
+
+%% DEBUG: LISTEN
+% Uncomment to hear tones
+% sound(audio, fs);
 
 %% AFSK DEMOD
 bits = afsk_demodulate(audio, fs);
 
-%% FLAG DETECTION
+%% FLAG CHECK
 flag_pos = strfind(bits, flag);
 
 if length(flag_pos) < 2
     continue;
 end
 
-%% DECODE AX.25
+%% TRY DECODE
 try
     [src, dest, msg] = ax25_decode(bits);
 
-    fprintf('\n📡 RECEIVED PACKET\n');
+    fprintf('\n📡 VALID PACKET RECEIVED\n');
     fprintf('FROM: %s\n', src);
     fprintf('TO  : %s\n', dest);
     fprintf('MSG : %s\n', msg);
     fprintf('==============================\n');
 
 catch
-    % Ignore invalid frames
+    % ignore invalid frames
 end
-
 
 end
